@@ -8,12 +8,13 @@ structured-JSON call. This is what makes the role list open-ended: adding a
 role to ALL_ROLES in roles_data.py needs no matching skill table here.
 
 Falls back gracefully: if GEMINI_API_KEY isn't set, or the call fails for
-any reason, app.py catches it and uses the static rule-based engine instead
-(for the six roles that have one).
+any reason after retries, app.py catches it and uses the static rule-based
+engine instead (for the six roles that have one).
 """
 
 import json
 import os
+import time
 
 from google import genai
 from google.genai import types
@@ -65,6 +66,40 @@ commentary:
 """
 
 
+def _is_retryable_error(e):
+    """
+    Detect transient overload errors (503 / UNAVAILABLE) across SDK versions
+    without depending on one specific exception class, since google-genai's
+    error hierarchy has shifted between versions.
+    """
+    text = str(e)
+    code = getattr(e, "code", None) or getattr(e, "status_code", None)
+    return code == 503 or "503" in text or "UNAVAILABLE" in text
+
+
+def _generate_with_retry(prompt, max_retries=3):
+    """Retries on transient Gemini overload (503) with exponential backoff.
+    Re-raises immediately on any non-retryable error (bad JSON schema,
+    auth failure, invalid request, etc.) -- retrying those just wastes time."""
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            return _client.models.generate_content(
+                model=MODEL_NAME,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                ),
+            )
+        except Exception as e:
+            last_error = e
+            if not _is_retryable_error(e) or attempt == max_retries - 1:
+                raise
+            wait = 2 ** attempt  # 1s, 2s, 4s
+            time.sleep(wait)
+    raise last_error
+
+
 def analyze_with_gemini(role_name, resume_text):
     """Returns a result dict matching the app's API contract, or raises."""
     if _client is None:
@@ -72,14 +107,7 @@ def analyze_with_gemini(role_name, resume_text):
 
     prompt = PROMPT_TEMPLATE.format(role=role_name, resume_text=resume_text[:12000])
 
-    response = _client.models.generate_content(
-        model=MODEL_NAME,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            temperature=0.2,
-        ),
-    )
+    response = _generate_with_retry(prompt)
 
     data = json.loads(response.text)
 
