@@ -4,6 +4,21 @@ A skill-gap analysis platform for students. Paste your resume text, pick a
 target role, and get a weighted gap analysis plus a ranked list of the next
 skills to learn — with your progress tracked over time.
 
+## Project Credits
+
+Original project developed and maintained by Vishwa Venkatesh.
+
+Collaborative credit: Keerthana
+
+## Tech Stack
+
+- Frontend: React, Vite, Tailwind CSS
+- Backend: Python, Flask
+- AI: Google Gemini API
+- Database: SQLite
+- Deployment: Vercel + Render
+- PDF Processing: pypdf
+
 ## Project structure
 
 ```
